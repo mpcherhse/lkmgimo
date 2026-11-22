@@ -18,6 +18,7 @@ COPY --from=web /web/dist ./static
 RUN useradd -r -u 10001 lk && chown -R lk /app
 USER lk
 EXPOSE 8800
+# адрес клиента приложение определяет само (web.client_ip): правый публичный адрес из X-Forwarded-For от внутреннего прокси
 # число воркеров — по памяти тарифа (Argon2id берёт ~64 МБ на проверку пароля)
 ENV LK_WORKERS=2
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8800 --workers ${LK_WORKERS} --proxy-headers --forwarded-allow-ips '*'"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8800 --workers ${LK_WORKERS} --no-proxy-headers"]

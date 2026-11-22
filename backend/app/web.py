@@ -1,4 +1,5 @@
 """Общее для маршрутов: ошибка с текстом для пользователя, соединение на запрос, защита от CSRF, журнал действий, адрес клиента."""
+import ipaddress
 import json
 import logging
 import re
@@ -48,17 +49,39 @@ def audit(db, user_id, action, target=None, **details):
     audit_logger.info("%s %s %s", user_id, log_safe(action, 80), log_safe(target or "", 120))
 
 
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _internal(ip) -> bool:
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip in _CGNAT
+
+
 def client_ip(request: Request) -> str:
-    """адрес клиента. За обратным прокси uvicorn подставляет X-Forwarded-For только от доверенного прокси
-    (--proxy-headers --forwarded-allow-ips); сами заголовки не читаем — их подделывает кто угодно"""
-    return (request.client.host if request.client else "") or "unknown"
+    """адрес клиента. X-Forwarded-For учитывается, только если запрос пришёл от внутреннего прокси (частный адрес),
+    и берётся самый правый публичный адрес — его дописал наш прокси. Всё левее мог подставить сам клиент."""
+    peer = (request.client.host if request.client else "") or "unknown"
+    xff = request.headers.get("x-forwarded-for")
+    if not xff:
+        return peer
+    try:
+        if not _internal(ipaddress.ip_address(peer)):
+            return peer
+    except ValueError:
+        return peer
+    for part in reversed([p.strip() for p in xff.split(",")]):
+        try:
+            ip = ipaddress.ip_address(part)
+        except ValueError:
+            continue
+        if not _internal(ip):
+            return part
+    return peer
 
 
 def ip_bucket(ip: str) -> str:
     """ключ для лимитов частоты: IPv6 считается по сети /64 — одному абоненту обычно выдаётся вся сеть"""
     if ":" in ip:
         try:
-            import ipaddress
             return str(ipaddress.ip_network(f"{ip}/64", strict=False).network_address) + "/64"
         except ValueError:
             return ip
