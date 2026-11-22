@@ -8,7 +8,7 @@ from pydantic import Field
 
 from . import notify
 from .auth.routes import Strict, staff_user
-from .requests_logic import OPEN, STATUS_TEXT, add_event, make_certificate, next_statuses
+from .requests_logic import OPEN, STATUS_TEXT, status_label, add_event, make_certificate, next_statuses
 from .routes_student import KIND_TEXT, LESSON_SQL, lesson_view
 from .schedule_changes import change_text
 from .timetable import MSK, PAIRS, pair_time, today
@@ -36,16 +36,15 @@ REQ_SQL = """SELECT r.*, t.title, t.category, t.electronic, t.days, t.fields, s.
 
 def _req_view(db, r, full=False):
     out = {"id": r["public_id"], "number": r["number"], "title": r["title"], "category": r["category"], "status": r["status"],
-           "status_text": STATUS_TEXT[r["status"]], "status_comment": r["status_comment"], "delivery": r["delivery"],
+           "status_text": status_label(r["status"], r["category"]), "status_comment": r["status_comment"], "delivery": r["delivery"],
            "created_at": r["created_at"], "updated_at": r["updated_at"], "due_on": r["due_on"],
            "student": {"name": f"{r['last_name']} {r['first_name']} {r['middle_name']}".strip(), "group": r["group_code"],
                        "course": r["course"], "faculty": r["faculty_code"]},
-           "next": sorted(next_statuses(r["status"], r["category"]), key=list(STATUS_TEXT).index), "overdue": bool(r["due_on"] and r["due_on"] < today()
-                                                                                                    and r["status"] in OPEN)}
+           "next": sorted(next_statuses(r["status"], r["category"]), key=list(STATUS_TEXT).index), "overdue": bool(r["due_on"] and r["due_on"] < today() and r["status"] in OPEN and r["status"] != "ready")}
     if full:
         labels = {f["name"]: f["label"] for f in r["fields"]}
         out["payload"] = [{"label": labels.get(k, k), "value": v} for k, v in (r["payload"] or {}).items()]
-        out["events"] = [{"at": e["at"], "status": e["status"], "status_text": STATUS_TEXT.get(e["status"]) if e["status"] else None,
+        out["events"] = [{"at": e["at"], "status": e["status"], "status_text": status_label(e["status"], r["category"]) if e["status"] else None,
                           "message": e["message"], "author": e["author_role"], "author_name": e["author_name"]}
                          for e in db.execute("SELECT * FROM request_events WHERE request_id=%s ORDER BY at, id", (r["id"],))]
         cert = db.execute("SELECT number, verify_code FROM certificates WHERE request_id=%s", (r["id"],)).fetchone()
@@ -66,7 +65,7 @@ def overview(user=Depends(staff_user), db=Depends(database)):
     counts = {r["status"]: r["n"] for r in db.execute("""SELECT r.status, count(*) AS n FROM requests r JOIN students s ON s.user_id = r.student_id
         WHERE s.faculty_id = ANY(%s) GROUP BY r.status""", (sc["faculty_ids"],))}
     overdue = db.execute("""SELECT count(*) AS n FROM requests r JOIN students s ON s.user_id = r.student_id
-        WHERE s.faculty_id = ANY(%s) AND r.status = ANY(%s) AND r.due_on < %s""", (sc["faculty_ids"], list(OPEN), today())).fetchone()["n"]
+        WHERE s.faculty_id = ANY(%s) AND r.status = ANY(%s) AND r.due_on < %s""", (sc["faculty_ids"], list(OPEN - {"ready"}), today())).fetchone()["n"]
     students = db.execute("SELECT count(*) AS n FROM students WHERE faculty_id = ANY(%s)", (sc["faculty_ids"],)).fetchone()["n"]
     return {"name": sc["name"], "position": sc["position"], "faculties": [{"code": f["code"], "name": f["name"]} for f in sc["faculties"]],
             "counts": counts, "open": sum(v for k, v in counts.items() if k in OPEN), "overdue": overdue, "students": students}
@@ -116,7 +115,7 @@ def staff_set_status(data: StatusIn, pid: str = PID, user=Depends(staff_user), d
                                         "ready": ("Документ готов — скачайте его в заявке" if r["delivery"] == "electronic"
                                                   else "Документ готов — заберите в деканате с паспортом"),
                                         "done": "Заявка выполнена"}.get(data.status, "")
-        notify.personal(db, r["student_id"], "request", f"{r['title']}: {STATUS_TEXT[data.status].lower()}", text, f"/requests/{r['public_id']}",
+        notify.personal(db, r["student_id"], "request", f"{r['title']}: {status_label(data.status, r['category']).lower()}", text, f"/requests/{r['public_id']}",
                         important=data.status in ("ready", "rejected"))
         audit(db, user["id"], "staff.request.status", r["number"], status=data.status)
     return _req_view(db, _scoped_request(db, sc, pid), full=True)

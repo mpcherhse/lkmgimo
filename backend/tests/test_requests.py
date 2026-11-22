@@ -1,4 +1,5 @@
 """Заявка проходит путь «подана → принята → в работе → готова → выдана»; статусы видит студент, справка проверяется по QR."""
+import re
 from conftest import H
 
 
@@ -7,7 +8,7 @@ def test_full_request_flow(anna, staff, anon):
                                           "payload": {"purpose": "В банк", "language": "Русский"}}, headers=H)
     assert r.status_code == 200, r.text
     req = r.json()
-    assert req["status"] == "submitted" and req["number"].startswith("З-")
+    assert req["status"] == "submitted" and re.fullmatch(r"\d{4}-\d{5}", req["number"])
     rid = req["id"]
     # недопустимый переход
     assert staff.post(f"/api/staff/requests/{rid}/status", json={"status": "done"}, headers=H).status_code == 409

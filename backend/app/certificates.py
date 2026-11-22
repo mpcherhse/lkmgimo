@@ -87,7 +87,7 @@ def render_pdf(db, req, cert, s) -> bytes:
     c.setFont("PTSans", 10.5)
     c.setFillColor(grey)
     issued = cert["issued_at"].astimezone(MSK)
-    c.drawString(x0, y, f"№ {cert['number']} от {human_date(issued.date())} {issued.year} г. · по заявке {req['number']}")
+    c.drawString(x0, y, f"№ {cert['number']} от {human_date(issued.date())} {issued.year} г. · по заявке № {req['number']}")
     y -= 14 * mm
     c.setFillColor(HexColor("#111111"))
     c.setFont("PTSans", 12)

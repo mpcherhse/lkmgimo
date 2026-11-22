@@ -366,7 +366,7 @@ def _changes(conn, today, grp, users):
     fri = week_start + timedelta(days=4)
     l = _lesson_on(conn, anna, fri, "Мировая экономика", "lecture")
     if l:
-        conn.execute("""UPDATE lessons SET status='cancelled', change_reason='Занятие отменено: лекция будет прочитана онлайн 12 декабря',
+        conn.execute("""UPDATE lessons SET status='cancelled', change_reason='Лекция будет прочитана онлайн 12 декабря',
             changed_at=%s, sequence=sequence+1, updated_at=%s WHERE id=%s""", (now - timedelta(hours=20), now - timedelta(hours=20), l["id"]))
     # Даниил: лекция по эконометрике во вторник — онлайн
     tue = week_start + timedelta(days=1)
@@ -409,7 +409,7 @@ def _deadlines(conn, today, fac, grp, users):
 
 
 def _requests(conn, today, users, staff_name):
-    from .requests_logic import STATUS_TEXT, add_event, make_certificate, request_number
+    from .requests_logic import STATUS_TEXT, add_event, status_label, make_certificate, request_number
     now = datetime.now(MSK)
     items = [
         ("a.sokolova", "study_cert", {"purpose": "Для оформления визы", "language": "Английский", "comment": ""}, "electronic",
@@ -436,7 +436,7 @@ def _requests(conn, today, users, staff_name):
             add_event(conn, rid, st, msg, role, staff_name if role == "staff" else "", at=now - timedelta(hours=hours_ago))
             if role == "staff":
                 conn.execute("""INSERT INTO notifications (public_id, user_id, kind, title, body, link, important, created_at)
-                    VALUES (%s, %s, 'request', %s, %s, %s, %s, %s)""", (public_id(), users[login], f"{t['title']}: {STATUS_TEXT[st].lower()}",
+                    VALUES (%s, %s, 'request', %s, %s, %s, %s, %s)""", (public_id(), users[login], f"{t['title']}: {status_label(st, t['category']).lower()}",
                                                                         msg or STATUS_TEXT[st], "/requests", st in ("ready", "rejected"),
                                                                         now - timedelta(hours=hours_ago)))
         if status == "ready" and delivery == "electronic":

@@ -126,6 +126,32 @@ def demo_totp():
     return {"login": row["login"], "code": totp.now(), "valid_for": 30 - int(time.time()) % 30}
 
 
+@app.get("/api/demo/accounts", include_in_schema=False)
+def demo_accounts():
+    """ТОЛЬКО ДЛЯ СТЕНДА ЖЮРИ: подсказка с тестовыми аккаунтами на странице входа. Пароли берутся из окружения (LK_DEMO_PASSWORDS),
+    в коде их нет; демо-аккаунтам запрещено менять пароль и 2FA. В действующей системе маршрута нет."""
+    if not config.DEMO_TOTP_HELPER:
+        raise ApiError(404, "Не найдено")
+    import json
+    import os
+    try:
+        passwords = json.loads(os.environ.get("LK_DEMO_PASSWORDS") or "{}")
+    except ValueError:
+        passwords = {}
+    with storage.connect() as db:
+        rows = db.execute("""SELECT u.login, u.role, s.last_name, s.first_name, s.course, f.code AS faculty, st.full_name, st.position
+            FROM users u LEFT JOIN students s ON s.user_id = u.id LEFT JOIN faculties f ON f.id = s.faculty_id
+            LEFT JOIN staff st ON st.user_id = u.id WHERE u.demo AND u.active ORDER BY u.role DESC, u.id""").fetchall()
+    out = []
+    for r in rows:
+        if r["role"] == "student":
+            who = f"Студент: {r['first_name']} {r['last_name']}, {r['faculty']}, {r['course']} курс"
+        else:
+            who = f"Сотрудник деканата: {r['full_name']} (вход с кодом 2FA)"
+        out.append({"login": r["login"], "password": passwords.get(r["login"]), "who": who, "role": r["role"]})
+    return {"items": out}
+
+
 # ---------- фронтенд (сборка Vite) ----------
 def _spa():
     index = config.STATIC_DIR / "index.html"

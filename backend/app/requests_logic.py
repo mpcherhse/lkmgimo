@@ -5,6 +5,15 @@ from datetime import datetime, timedelta
 
 STATUS_TEXT = {"submitted": "Подана", "accepted": "Принята", "in_progress": "В работе", "ready": "Готова",
                "done": "Выдана", "rejected": "Отклонена", "cancelled": "Отозвана"}
+
+
+def status_label(status, category=None):
+    """вопрос в деканат не «выдаётся», а закрывается ответом; заявление — исполняется"""
+    if status == "done" and category == "question":
+        return "Ответ дан"
+    if status == "done" and category == "statement":
+        return "Исполнена"
+    return STATUS_TEXT.get(status, status)
 # кто куда может перевести заявку
 STAFF_FLOW = {"submitted": {"accepted", "rejected"}, "accepted": {"in_progress", "ready", "rejected"},
               "in_progress": {"ready", "rejected"}, "ready": {"done"}}
@@ -22,7 +31,7 @@ OPEN = {"submitted", "accepted", "in_progress", "ready"}
 
 def request_number(conn):
     n = conn.execute("SELECT count(*) AS n FROM requests").fetchone()["n"] + 1
-    return f"З-{datetime.now().year}-{n:05d}"
+    return f"{datetime.now().year}-{n:05d}"   # без буквенного префикса: «З» на экране путают с цифрой 3
 
 
 def add_event(conn, request_id, status, message, role, name="", at=None):

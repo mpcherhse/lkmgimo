@@ -10,7 +10,7 @@ from pydantic import Field
 
 from . import grading, ratelimit
 from .auth.routes import Strict, current_user, student_user
-from .requests_logic import OPEN, STATUS_TEXT, add_event, request_number, validate_payload
+from .requests_logic import OPEN, STATUS_TEXT, status_label, add_event, request_number, validate_payload
 from .schedule_changes import change_text
 from .security import public_id
 from .timetable import MSK, PAIRS, WEEKDAYS, human_date, now_msk, today, week_no
@@ -130,7 +130,7 @@ def dashboard(user=Depends(student_user), db=Depends(database)):
         nxt = next((x for x in later if x["status"] != "cancelled"), None)
     changes = [x for x in lessons_between(db, s["group_ids"], _day_start(d), _day_start(d + timedelta(days=8))) if x["status"] != "ok"]
     deadlines = deadlines_for(db, s, now, now + timedelta(days=21))
-    reqs = db.execute("""SELECT r.public_id, r.number, r.status, r.updated_at, t.title FROM requests r JOIN request_types t ON t.code = r.type_code
+    reqs = db.execute("""SELECT r.public_id, r.number, r.status, r.updated_at, t.title, t.category FROM requests r JOIN request_types t ON t.code = r.type_code
         WHERE r.student_id=%s AND (r.status = ANY(%s) OR r.updated_at > now() - interval '3 days') ORDER BY r.updated_at DESC LIMIT 5""",
                       (user["id"], list(OPEN))).fetchall()
     notes = db.execute("""SELECT public_id, kind, title, body, important, created_at FROM notifications
@@ -143,7 +143,7 @@ def dashboard(user=Depends(student_user), db=Depends(database)):
                   "lessons": todays},
         "next": nxt, "changes": changes, "deadlines": deadlines,
         "requests": [{"id": r["public_id"], "number": r["number"], "title": r["title"], "status": r["status"],
-                      "status_text": STATUS_TEXT[r["status"]], "updated_at": r["updated_at"]} for r in reqs],
+                      "status_text": status_label(r["status"], r["category"]), "updated_at": r["updated_at"]} for r in reqs],
         "notifications": [{"id": n["public_id"], "kind": n["kind"], "title": n["title"], "body": n["body"], "important": n["important"],
                            "created_at": n["created_at"]} for n in notes],
         "rating": {"semester": sem["title"], "estimate": g["summary"]["estimate"], "estimate_grade": g["summary"]["estimate_grade"],
@@ -257,7 +257,7 @@ def _own_request(db, uid, pid):
 
 def request_view(db, r, full=False):
     out = {"id": r["public_id"], "number": r["number"], "type": r["type_code"], "title": r["title"], "category": r["category"],
-           "status": r["status"], "status_text": STATUS_TEXT[r["status"]], "status_comment": r["status_comment"],
+           "status": r["status"], "status_text": status_label(r["status"], r["category"]), "status_comment": r["status_comment"],
            "delivery": r["delivery"], "created_at": r["created_at"], "updated_at": r["updated_at"], "due_on": r["due_on"],
            "can_cancel": r["status"] == "submitted"}
     cert = db.execute("SELECT number, verify_code, issued_at, valid_until, revoked_at FROM certificates WHERE request_id=%s", (r["id"],)).fetchone()
@@ -265,7 +265,7 @@ def request_view(db, r, full=False):
     if full:
         fields = {f["name"]: f["label"] for f in r["fields"]}
         out["payload"] = [{"label": fields.get(k, k), "value": v} for k, v in (r["payload"] or {}).items()]
-        out["events"] = [{"at": e["at"], "status": e["status"], "status_text": STATUS_TEXT.get(e["status"]) if e["status"] else None,
+        out["events"] = [{"at": e["at"], "status": e["status"], "status_text": status_label(e["status"], r["category"]) if e["status"] else None,
                           "message": e["message"], "author": e["author_role"], "author_name": e["author_name"]}
                          for e in db.execute("SELECT * FROM request_events WHERE request_id=%s ORDER BY at, id", (r["id"],))]
     return out
