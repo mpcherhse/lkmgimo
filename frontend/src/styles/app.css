@@ -50,7 +50,8 @@
 @media (min-width: 1280px) { :root { --gutter: 32px; } }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scroll-padding-top: 72px; }
+a, button, input, select, textarea, summary, label { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 body {
   margin: 0;
   font-family: var(--font);
@@ -327,7 +328,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .table .c { text-align: center; font-variant-numeric: tabular-nums; }
 
 /* ---------- расписание: колонка пар как в печатном расписании ---------- */
-.day { margin-bottom: 20px; }
+.day { margin-bottom: 20px; scroll-margin-top: 72px; }
 .day-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .day-head h2 { font-size: var(--fs-md); text-transform: none; }
 .day-head .wd { color: var(--muted); font-size: var(--fs-sm); }
@@ -492,3 +493,6 @@ details.explain .panel-body { padding-top: 0; }
   .content { padding: 0; max-width: none; }
   .panel, .slots { box-shadow: none; }
 }
+
+/* сегментный переключатель не растягивается в колонке */
+.stack > .seg, .stack-sm > .seg { align-self: flex-start; }

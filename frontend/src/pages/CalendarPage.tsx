@@ -68,7 +68,7 @@ export default function CalendarPage() {
                 <p className="xs muted">Ссылка показана один раз. Потеряли — выпустите новую, старая отключится.</p>
               </div>
               <div className="row" style={{ alignItems: 'flex-start' }}>
-                <img className="qr" src={feed.qr} alt="QR-код ссылки на календарь" />
+                <img className="qr" width={168} height={168} src={feed.qr} alt="QR-код ссылки на календарь" />
                 <p className="small muted" style={{ maxWidth: 220 }}>Открыли кабинет на компьютере? Наведите камеру телефона на код — iPhone предложит подписаться на календарь.</p>
               </div>
             </div>

@@ -60,7 +60,7 @@ export default function Notifications() {
           <button aria-pressed={unread} onClick={() => set('unread', '1')}>Непрочитанные{totalUnread ? ` · ${totalUnread}` : ''}</button>
         </div>
         <label className="sr-only" htmlFor="nq">Поиск по уведомлениям</label>
-        <input id="nq" className="input" type="search" placeholder="Поиск" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input id="nq" className="input" type="search" placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <div className="seg" role="group" aria-label="Тип">
         <button aria-pressed={!kind} onClick={() => set('kind', null)}>Все типы</button>
@@ -78,13 +78,16 @@ export default function Notifications() {
                 const k = KINDS.find((x) => x.key === n.kind) ?? KINDS[0]
                 const Icon = k.icon
                 return (
-                  <li key={n.id} className={`notif ${n.read ? '' : 'unread'}`} onClick={() => read(n)} onFocus={() => read(n)}>
+                  <li key={n.id} className={`notif ${n.read ? '' : 'unread'}`}>
                     <span className={`ic ${n.important ? 'red' : k.tone ?? ''}`} aria-hidden="true"><Icon /></span>
                     <div className="grow">
                       <div className="title">{n.important && <span className="badge badge-red" style={{ marginRight: 6 }}>Важно</span>}{n.title}</div>
                       {n.body && <div className="body">{n.body}</div>}
                       <div className="when">{k.label} · {relative(n.created_at)}{!n.read && <span className="sr-only"> · не прочитано</span>}</div>
-                      {n.link && <Link className="small" to={n.link} onClick={() => read(n)}>Открыть</Link>}
+                      <div className="row" style={{ marginTop: 4, gap: 4 }}>
+                        {n.link && <Link className="btn btn-ghost btn-sm" to={n.link} onClick={() => read(n)}>Открыть</Link>}
+                        {!n.read && <button className="btn btn-ghost btn-sm" onClick={() => read(n)}>Отметить прочитанным</button>}
+                      </div>
                     </div>
                   </li>
                 )

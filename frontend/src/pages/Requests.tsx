@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronRight, FilePlus2, FileText } from 'lucide-react'
 import { useLoad } from '../lib/useLoad'
 import { dayMonth, relative } from '../lib/format'
@@ -11,7 +10,9 @@ const OPEN = ['submitted', 'accepted', 'in_progress', 'ready']
 export default function Requests() {
   usePageTitle('Заявки и справки')
   const { data, error, loading, reload } = useLoad<{ items: RequestItem[] }>('/api/requests')
-  const [tab, setTab] = useState<'open' | 'closed'>('open')
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'closed' ? 'closed' : 'open'
+  const setTab = (t: 'open' | 'closed') => setParams(t === 'open' ? {} : { tab: t }, { replace: true })
   if (loading && !data) return <PageSkeleton />
   if (error && !data) return <LoadError error={error} retry={reload} />
   const items = data?.items ?? []

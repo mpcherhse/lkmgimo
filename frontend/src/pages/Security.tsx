@@ -120,7 +120,7 @@ export default function Security() {
             <form className="stack-sm" onSubmit={totpEnable}>
               <p className="small">Отсканируйте код в Яндекс Ключе, Google Authenticator или другом приложении и введите 6 цифр.</p>
               <div className="row" style={{ alignItems: 'flex-start' }}>
-                <img className="qr" src={totp.qr} alt="QR-код для приложения-аутентификатора" />
+                <img className="qr" width={168} height={168} src={totp.qr} alt="QR-код для приложения-аутентификатора" />
                 <div className="stack-sm"><span className="xs muted">Или введите ключ вручную:</span><code className="code">{totp.secret}</code></div>
               </div>
               <div className="row">

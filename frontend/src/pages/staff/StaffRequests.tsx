@@ -27,7 +27,7 @@ export default function StaffRequests() {
           {FILTERS.map((f) => <button key={f.key} aria-pressed={status === f.key} onClick={() => setParams({ status: f.key }, { replace: true })}>{f.label}</button>)}
         </div>
         <label className="sr-only" htmlFor="sq">Поиск</label>
-        <input id="sq" className="input" type="search" placeholder="Фамилия, номер или вид" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input id="sq" className="input" type="search" placeholder="Фамилия, номер или вид…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       {loading && !data ? <PageSkeleton /> : error && !data ? <LoadError error={error} retry={reload} /> : (
         <Panel flush>
