@@ -6,6 +6,7 @@ export interface Me {
 }
 export interface LessonChange { title: string; text: string; reason: string; at: string; prev: { date: string; start: string; room: string | null } | null }
 export interface Lesson {
+  editable?: boolean
   id: string; discipline: string; kind: string; kind_text: string; date: string; start: string; end: string; pair: number | null
   teacher: string; room: string; building: string; online_url: string; status: 'ok' | 'moved' | 'cancelled'; groups: string[]; change: LessonChange | null
 }

@@ -18,4 +18,6 @@ COPY --from=web /web/dist ./static
 RUN useradd -r -u 10001 lk && chown -R lk /app
 USER lk
 EXPOSE 8800
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8800", "--workers", "3", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# число воркеров — по памяти тарифа (Argon2id берёт ~64 МБ на проверку пароля)
+ENV LK_WORKERS=2
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8800 --workers ${LK_WORKERS} --proxy-headers --forwarded-allow-ips '*'"]

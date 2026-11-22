@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import ratelimit
 from ..security import DUMMY_HASH, check_password, decrypt, encrypt, hash_password, new_token, token_hash, verify_password
-from ..web import ApiError, audit, client_ip, database, mutation
+from ..web import ApiError, audit, client_ip, database, mutation, rate_ip
 from . import clock, core
 
 router = APIRouter()
@@ -104,14 +104,24 @@ def _totp_ok(db, user, code) -> bool:
     return False
 
 
+def _known_device(db, login_name, request) -> bool:
+    key = core.device_key(request)
+    if not key:
+        return False
+    return db.execute("""SELECT 1 FROM devices d JOIN users u ON u.id = d.user_id WHERE u.login=%s AND d.key_hash=%s""",
+                      (login_name, token_hash(key))).fetchone() is not None
+
+
 @router.post("/api/login", dependencies=[Depends(mutation)])
 def login(data: LoginIn, request: Request, db=Depends(database)):
     login_name = normalize_login(data.login)
     now = clock.now()
     ip = client_ip(request)
-    ip_key = f"login_ip:{ip}"
+    ip_key = f"login_ip:{rate_ip(request)}"
     ratelimit.hit(db, ip_key, message="Слишком много попыток входа с этого адреса. Попробуйте через 10 минут")
-    ratelimit.hit(db, f"login_user:{login_name}", message="Слишком много попыток входа в этот аккаунт. Попробуйте позже")
+    # общий лимит на логин не действует на устройство, с которого владелец уже входил: чужие попытки не запирают хозяина
+    if not _known_device(db, login_name, request):
+        ratelimit.hit(db, f"login_user:{login_name}", message="Слишком много попыток входа в этот аккаунт. Попробуйте позже")
     lock_key = f"{login_name}|{ip}"
     tries, lock_until = _reserve_attempt(db, lock_key, now)
     if (lock_until and lock_until > now) or tries > LOCK_AFTER:
@@ -145,15 +155,24 @@ def login(data: LoginIn, request: Request, db=Depends(database)):
 @router.post("/api/login/mfa", dependencies=[Depends(mutation)])
 def login_mfa(data: CodeIn, request: Request, db=Depends(database)):
     token = request.cookies.get(core.MFA_COOKIE) or ""
-    ratelimit.hit(db, f"mfa:{client_ip(request)}", message="Слишком много попыток ввода кода. Попробуйте через 10 минут")
+    ratelimit.hit(db, f"mfa:{rate_ip(request)}", message="Слишком много попыток ввода кода. Попробуйте через 10 минут")
     ch = db.execute("SELECT * FROM mfa_challenges WHERE token_hash=%s", (token_hash(token),)).fetchone() if token else None
     if not ch or ch["created_at"] + timedelta(minutes=5) < clock.now() or ch["attempts"] >= 5:
         core.queue_cookie(request, core.MFA_COOKIE, None)
         raise ApiError(401, "Время на ввод кода истекло — войдите снова", code="mfa_expired")
     user = db.execute("SELECT * FROM users WHERE id=%s", (ch["user_id"],)).fetchone()
+    if not user["demo"]:
+        # пароль уже известен тому, кто вводит код: ограничиваем перебор на аккаунт, а не только на адрес и на попытку входа
+        # (у общего демо-аккаунта код публичен на /staff-code, лимит только позволил бы запереть проверяющих)
+        ratelimit.hit(db, f"mfa_user:{user['id']}", message="Слишком много попыток ввода кода. Попробуйте через 10 минут")
+        ratelimit.hit(db, f"mfa_user_day:{user['id']}", message="Слишком много попыток ввода кода за сутки. Обратитесь в поддержку")
     if not _totp_ok(db, user, data.code):
         db.execute("UPDATE mfa_challenges SET attempts = attempts + 1 WHERE token_hash=%s", (ch["token_hash"],))
         core.login_event(db, user["id"], user["login"], "fail", request, reason="mfa")
+        fails = db.execute("""SELECT count(*) AS n FROM login_events WHERE user_id=%s AND result='fail' AND reason='mfa'
+            AND at > now() - interval '1 hour'""", (user["id"],)).fetchone()["n"]
+        if fails == 5 and not user["demo"]:
+            core.notify_security(db, user["id"], "Кто-то ввёл ваш пароль и пять раз ошибся с кодом 2FA. Если это были не вы — смените пароль.")
         raise ApiError(401, "Неверный код. Возьмите свежий код в приложении-аутентификаторе", code="bad_code")
     db.execute("DELETE FROM mfa_challenges WHERE token_hash=%s", (ch["token_hash"],))
     core.queue_cookie(request, core.MFA_COOKIE, None)
@@ -188,9 +207,31 @@ def reauth(data: PasswordIn, request: Request, user=Depends(challenged_user), db
 
 
 # ---------- сеансы и история ----------
+def _demo_guard(user):
+    if user["demo"]:
+        raise ApiError(403, "В общем тестовом аккаунте нельзя завершать чужие сеансы и менять срок входа — иначе проверяющие "
+                            "выкидывали бы друг друга. В личном аккаунте это работает", code="demo_locked")
+
+
+def _mask_ip(ip):
+    """в общем демо-аккаунте адреса других проверяющих не показываем"""
+    if not ip:
+        return ip
+    if ":" in ip:
+        return ip.split(":")[0] + ":…"
+    parts = ip.split(".")
+    return ".".join(parts[:2] + ["x", "x"]) if len(parts) == 4 else "скрыт"
+
+
 @router.get("/api/me/sessions")
 def my_sessions(user=Depends(current_user), db=Depends(database)):
-    return core.sessions_view(db, user["session"])
+    view = core.sessions_view(db, user["session"])
+    if user["demo"]:
+        for v in [view["current"], *view["others"]]:
+            if v:
+                v["ip"] = _mask_ip(v["ip"])
+        view["demo"] = True
+    return view
 
 
 @router.delete("/api/me/sessions/{sid}", dependencies=[Depends(mutation)])
@@ -201,6 +242,7 @@ def terminate_session(sid: str = SID, user=Depends(current_user), db=Depends(dat
         raise ApiError(404, "Сеанс не найден или уже завершён")
     if target["id"] == s["id"]:
         raise ApiError(400, "Чтобы завершить текущий сеанс, нажмите «Выйти»")
+    _demo_guard(user)
     core.revoke(db, target["id"], "terminated", by=s["id"])
     audit(db, user["id"], "session.terminate", sid)
     return {"ok": True}
@@ -208,6 +250,7 @@ def terminate_session(sid: str = SID, user=Depends(current_user), db=Depends(dat
 
 @router.post("/api/me/sessions/terminate-others", dependencies=[Depends(mutation)])
 def terminate_others(user=Depends(current_user), db=Depends(database)):
+    _demo_guard(user)
     n = core.revoke_user(db, user["id"], "terminated", keep=user["session"]["id"], by=user["session"]["id"])
     audit(db, user["id"], "session.terminate_others", None, count=n)
     return {"ok": True, "terminated": n}
@@ -215,7 +258,11 @@ def terminate_others(user=Depends(current_user), db=Depends(database)):
 
 @router.get("/api/me/logins")
 def my_logins(user=Depends(current_user), db=Depends(database)):
-    return {"items": core.login_history(db, user["id"])}
+    items = core.login_history(db, user["id"])
+    if user["demo"]:
+        for i in items:
+            i["ip"] = _mask_ip(i["ip"])
+    return {"items": items}
 
 
 class TtlIn(Strict):
@@ -224,6 +271,7 @@ class TtlIn(Strict):
 
 @router.put("/api/me/session-ttl", dependencies=[Depends(mutation)])
 def set_ttl(data: TtlIn, user=Depends(current_user), db=Depends(database)):
+    _demo_guard(user)
     if data.days not in core.TTL_OPTIONS:
         raise ApiError(422, "Недопустимый срок")
     core.set_ttl(db, user["id"], data.days)
@@ -257,7 +305,11 @@ def change_password(data: NewPasswordIn, request: Request, user=Depends(session_
         db.execute("UPDATE users SET password_hash=%s, must_change_password=false WHERE id=%s", (hash_password(data.new), user["id"]))
         audit(db, user["id"], "password.change")
     core.revoke_user(db, user["id"], "password_changed", keep=user["session"]["id"])
-    return {"ok": True}
+    # всё, что могло быть выпущено с украденным паролем: ссылки календаря и пароли приложений
+    with db.transaction():
+        feeds = db.execute("UPDATE calendar_feeds SET revoked_at=now() WHERE user_id=%s AND revoked_at IS NULL", (user["id"],)).rowcount
+        apps = db.execute("UPDATE app_passwords SET revoked_at=now() WHERE user_id=%s AND revoked_at IS NULL", (user["id"],)).rowcount
+    return {"ok": True, "calendar_revoked": feeds + apps > 0}
 
 
 # ---------- второй фактор (TOTP) ----------

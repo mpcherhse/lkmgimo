@@ -14,6 +14,7 @@ from email.utils import format_datetime
 from xml.etree import ElementTree as ET
 
 from fastapi import APIRouter, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse, Response
 
 from . import db as storage, ratelimit
@@ -21,7 +22,7 @@ from .calendar_feed import (calendar_name, calendar_rows, ctag, deadline_event, 
                             normalize_app_password)
 from .routes_student import student
 from .security import token_hash
-from .web import ApiError, client_ip
+from .web import ApiError, client_ip, rate_ip
 
 router = APIRouter()
 D, C, CS, A = "DAV:", "urn:ietf:params:xml:ns:caldav", "http://calendarserver.org/ns/", "http://apple.com/ns/ical/"
@@ -56,7 +57,7 @@ def _auth(request: Request, db):
     row = db.execute("""SELECT u.id, u.login, a.id AS app_id FROM app_passwords a JOIN users u ON u.id = a.user_id
         WHERE a.secret_hash=%s AND a.revoked_at IS NULL AND u.active AND u.role='student'""", (token_hash(normalize_app_password(pw)),)).fetchone()
     if not row or row["login"] != login:
-        ratelimit.hit(db, f"dav_fail:{client_ip(request)}", message="Слишком много неверных паролей")
+        ratelimit.hit(db, f"dav_fail:{rate_ip(request)}", message="Слишком много неверных паролей")
         return None
     ua = (request.headers.get("user-agent") or "")[:120]
     db.execute("UPDATE app_passwords SET last_used_at=now(), last_client=%s WHERE id=%s AND (last_used_at IS NULL OR last_used_at < now() - interval '5 minutes')",
@@ -94,10 +95,23 @@ def _href(path):
     return _el(q(D, "href"), path)
 
 
-async def _body(request: Request):
-    raw = await request.body()
-    if len(raw) > MAX_BODY:
+async def _read_body(request: Request) -> bytes:
+    """тело читается с ограничением ещё до разбора: заголовок Content-Length и фактический поток"""
+    try:
+        declared = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        raise ApiError(400, "Неверный Content-Length") from None
+    if declared > MAX_BODY:
         raise ApiError(413, "Слишком большой запрос")
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > MAX_BODY:
+            raise ApiError(413, "Слишком большой запрос")
+    return bytes(raw)
+
+
+def _body(raw: bytes):
     if not raw.strip():
         return None
     try:
@@ -231,6 +245,12 @@ async def dav(request: Request, path: str = ""):
     method = request.method.upper()
     if method == "OPTIONS":
         return Response(status_code=200, headers={"DAV": "1, 3, calendar-access", "Allow": ", ".join(READ_METHODS)})
+    raw = await _read_body(request) if method in ("PROPFIND", "REPORT") else b""
+    # работа с базой синхронная — в пуле потоков, чтобы не блокировать цикл событий
+    return await run_in_threadpool(_dav_sync, request, path, method, raw)
+
+
+def _dav_sync(request: Request, path: str, method: str, raw: bytes):
     with storage.connect() as db:
         user = _auth(request, db)
         if not user:
@@ -241,7 +261,7 @@ async def dav(request: Request, path: str = ""):
         login = user["login"]
         parts = [p for p in path.split("/") if p]
         depth = request.headers.get("depth", "1" if method == "REPORT" else "0")
-        root = await _body(request) if method in ("PROPFIND", "REPORT") else None
+        root = _body(raw) if method in ("PROPFIND", "REPORT") else None
 
         # корень и принципал
         if not parts or parts == ["principals"] or (parts[0] == "principals" and len(parts) == 2):

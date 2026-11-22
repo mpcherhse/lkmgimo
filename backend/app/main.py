@@ -35,7 +35,16 @@ def _sweeper(stop):
 @asynccontextmanager
 async def lifespan(app):
     with storage.direct() as conn:
-        storage.migrate(conn)
+        # несколько воркеров стартуют одновременно: миграции и первичное заполнение — под общей блокировкой
+        conn.execute("SELECT pg_advisory_lock(4243)")
+        try:
+            storage.migrate(conn)
+            if config.AUTO_SEED and not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                from . import seed
+                seed.run(conn, verbose=False)
+                log.warning("база была пустой — заполнена демо-данными")
+        finally:
+            conn.execute("SELECT pg_advisory_unlock(4243)")
     stop = threading.Event()
     _sweeper(stop)
     yield
@@ -79,12 +88,21 @@ async def unhandled(request: Request, exc: Exception):
     return JSONResponse({"detail": "Что-то пошло не так на сервере. Попробуйте ещё раз через минуту", "code": "server_error"}, status_code=500)
 
 
+MAX_REQUEST = 1024 * 1024
+
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "manifest-src 'self'; worker-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
+    # второй рубеж к лимиту прокси: заявленное тело больше 1 МБ не читаем вовсе (CalDAV дополнительно режет поток)
+    try:
+        too_big = int(request.headers.get("content-length") or 0) > MAX_REQUEST
+    except ValueError:
+        too_big = True
+    if too_big:
+        return JSONResponse({"detail": "Слишком большой запрос"}, status_code=413)
     response = await call_next(request)
     core.apply_cookies(request, response)
     h = response.headers

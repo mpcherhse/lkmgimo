@@ -78,7 +78,7 @@ def staff_requests(status: str = Query(None, pattern=r"^(open|submitted|accepted
     statuses = list(OPEN) if status in (None, "open") else (None if status == "all" else [status])
     like = f"%{q.strip()}%" if q and q.strip() else None
     rows = db.execute(REQ_SQL + """ WHERE s.faculty_id = ANY(%s) AND (%s::text[] IS NULL OR r.status = ANY(%s::text[]))
-        AND (%s::text IS NULL OR s.last_name ILIKE %s OR r.number ILIKE %s OR t.title ILIKE %s)
+        AND (%s::text IS NULL OR s.last_name COLLATE \"und-x-icu\" ILIKE %s OR r.number COLLATE \"und-x-icu\" ILIKE %s OR t.title COLLATE \"und-x-icu\" ILIKE %s)
         ORDER BY CASE r.status WHEN 'submitted' THEN 0 WHEN 'accepted' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'ready' THEN 3 ELSE 4 END,
                  r.created_at""", (sc["faculty_ids"], statuses, statuses, like, like, like, like)).fetchall()
     return {"items": [_req_view(db, r) for r in rows]}
@@ -157,7 +157,8 @@ def staff_lessons(group: int = Query(...), start: date = Query(None, alias="from
                       (group, st, st + timedelta(days=days))).fetchall()
     g = next(x for x in sc["groups"] if x["id"] == group)
     scheme = next(f["pair_scheme"] for f in sc["faculties"] if f["id"] == g["faculty_id"])
-    return {"items": [lesson_view(r) for r in rows], "pairs": [{"n": i + 1, "start": a, "end": b} for i, (a, b) in enumerate(PAIRS[scheme])]}
+    own = set(sc["group_ids"])
+    return {"items": [{**lesson_view(r), "editable": set(r["group_ids"]) <= own} for r in rows], "pairs": [{"n": i + 1, "start": a, "end": b} for i, (a, b) in enumerate(PAIRS[scheme])]}
 
 
 class ChangeIn(Strict):
@@ -171,9 +172,10 @@ class ChangeIn(Strict):
 
 @router.post("/api/staff/lessons/{pid}/change", dependencies=[Depends(mutation)])
 def change_lesson(data: ChangeIn, pid: str = PID, user=Depends(staff_user), db=Depends(database)):
-    """перенос, смена аудитории, перевод в онлайн или отмена: студенты получают уведомление, календари — новую версию события"""
+    """перенос, смена аудитории, перевод в онлайн или отмена: студенты получают уведомление, календари — новую версию события.
+    Менять можно только занятие, все группы которого относятся к факультетам сотрудника (общий поток с чужим факультетом — нет)."""
     sc = staff_scope(db, user["id"])
-    l = db.execute(LESSON_SQL + " WHERE l.public_id=%s AND l.group_ids && %s::int[]", (pid, sc["group_ids"])).fetchone()
+    l = db.execute(LESSON_SQL + " WHERE l.public_id=%s AND l.group_ids <@ %s::int[]", (pid, sc["group_ids"])).fetchone()
     if not l:
         raise ApiError(404, "Занятие не найдено")
     if l["status"] == "cancelled":

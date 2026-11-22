@@ -52,3 +52,18 @@ def client_ip(request: Request) -> str:
     """адрес клиента. За обратным прокси uvicorn подставляет X-Forwarded-For только от доверенного прокси
     (--proxy-headers --forwarded-allow-ips); сами заголовки не читаем — их подделывает кто угодно"""
     return (request.client.host if request.client else "") or "unknown"
+
+
+def ip_bucket(ip: str) -> str:
+    """ключ для лимитов частоты: IPv6 считается по сети /64 — одному абоненту обычно выдаётся вся сеть"""
+    if ":" in ip:
+        try:
+            import ipaddress
+            return str(ipaddress.ip_network(f"{ip}/64", strict=False).network_address) + "/64"
+        except ValueError:
+            return ip
+    return ip
+
+
+def rate_ip(request: Request) -> str:
+    return ip_bucket(client_ip(request))

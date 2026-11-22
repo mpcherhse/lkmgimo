@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Path as PathParam, Request
 
 from . import config, ratelimit
 from .timetable import MSK, human_date
-from .web import ApiError, client_ip, database
+from .web import ApiError, client_ip, database, rate_ip
 
 router = APIRouter()
 FONTS = Path(__file__).resolve().parent / "resources" / "fonts"
@@ -148,7 +148,7 @@ def mask_name(last, first, middle):
 @router.get("/api/verify/{code}")
 def verify(request: Request, code: str = PathParam(pattern=r"^[A-Za-z0-9_-]{10,40}$"), db=Depends(database)):
     """публичная проверка справки по коду из QR: минимум сведений, без персональных данных"""
-    ratelimit.hit(db, f"feed:{client_ip(request)}")
+    ratelimit.hit(db, f"feed:{rate_ip(request)}")
     row = db.execute("""SELECT c.*, t.title, s.last_name, s.first_name, s.middle_name, f.name AS faculty
         FROM certificates c JOIN requests r ON r.id = c.request_id JOIN request_types t ON t.code = r.type_code
         JOIN students s ON s.user_id = r.student_id JOIN faculties f ON f.id = s.faculty_id WHERE c.verify_code=%s""", (code,)).fetchone()

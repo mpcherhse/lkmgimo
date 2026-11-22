@@ -1,5 +1,9 @@
 {$LK_DOMAIN} {
 	encode zstd gzip
+	# тело запроса не больше 1 МБ: загрузок файлов в кабинете нет, а большое тело — способ занять память сервера
+	request_body {
+		max_size 1MB
+	}
 	# CalDAV и подписка на календарь идут к приложению как есть (методы PROPFIND/REPORT пропускаются)
 	reverse_proxy app:8800 {
 		header_up X-Forwarded-Proto {scheme}

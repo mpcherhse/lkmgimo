@@ -359,7 +359,7 @@ def notifications(unread: bool = False, kind: str = Query(None, pattern=r"^(anno
                   q: str = Query(None, max_length=100), limit: int = Query(50, ge=1, le=200), user=Depends(current_user), db=Depends(database)):
     like = f"%{q.strip()}%" if q and q.strip() else None
     rows = db.execute("""SELECT * FROM notifications WHERE user_id=%s AND (%s = false OR read_at IS NULL) AND (%s::text IS NULL OR kind = %s)
-        AND (%s::text IS NULL OR title ILIKE %s OR body ILIKE %s) ORDER BY created_at DESC LIMIT %s""",
+        AND (%s::text IS NULL OR title COLLATE \"und-x-icu\" ILIKE %s OR body COLLATE \"und-x-icu\" ILIKE %s) ORDER BY created_at DESC LIMIT %s""",
                       (user["id"], unread, kind, kind, like, like, like, limit)).fetchall()
     counts = db.execute("""SELECT kind, count(*) FILTER (WHERE read_at IS NULL) AS unread, count(*) AS total FROM notifications
         WHERE user_id=%s GROUP BY kind""", (user["id"],)).fetchall()
@@ -388,9 +388,9 @@ def search(q: str = Query(min_length=2, max_length=60), user=Depends(student_use
     s = student(db, user["id"])
     like = f"%{q.strip()}%"
     disc = db.execute("""SELECT DISTINCT d.name FROM lessons l JOIN disciplines d ON d.id=l.discipline_id
-        WHERE l.group_ids && %s::int[] AND d.name ILIKE %s LIMIT 5""", (s["group_ids"], like)).fetchall()
-    types = db.execute("SELECT code, title FROM request_types WHERE title ILIKE %s OR description ILIKE %s ORDER BY sort LIMIT 5", (like, like)).fetchall()
-    notes = db.execute("""SELECT public_id, title FROM notifications WHERE user_id=%s AND (title ILIKE %s OR body ILIKE %s)
+        WHERE l.group_ids && %s::int[] AND d.name COLLATE \"und-x-icu\" ILIKE %s LIMIT 5""", (s["group_ids"], like)).fetchall()
+    types = db.execute("SELECT code, title FROM request_types WHERE title COLLATE \"und-x-icu\" ILIKE %s OR description COLLATE \"und-x-icu\" ILIKE %s ORDER BY sort LIMIT 5", (like, like)).fetchall()
+    notes = db.execute("""SELECT public_id, title FROM notifications WHERE user_id=%s AND (title COLLATE \"und-x-icu\" ILIKE %s OR body COLLATE \"und-x-icu\" ILIKE %s)
         ORDER BY created_at DESC LIMIT 5""", (user["id"], like, like)).fetchall()
     return {"disciplines": [d["name"] for d in disc], "request_types": [{"code": t["code"], "title": t["title"]} for t in types],
             "notifications": [{"id": n["public_id"], "title": n["title"]} for n in notes]}

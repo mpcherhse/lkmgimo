@@ -20,7 +20,7 @@ from .routes_student import KIND_TEXT, LESSON_SQL, current_semester, student
 from .schedule_changes import change_text
 from .security import app_password, new_token, public_id, token_hash
 from .timetable import MSK
-from .web import ApiError, audit, client_ip, database, mutation
+from .web import ApiError, audit, client_ip, database, mutation, rate_ip
 
 router = APIRouter()
 PRODID = "-//Tsifrovoy dekanat (concept)//LK//RU"
@@ -241,8 +241,9 @@ def ics_response(body: bytes, filename: str):
 
 @router.get("/cal/{token}.ics")
 def public_feed(request: Request, token: str = Path(pattern=r"^[A-Za-z0-9_-]{20,64}$"), db=Depends(database)):
-    ratelimit.hit(db, f"feed:{client_ip(request)}")
-    feed = db.execute("SELECT * FROM calendar_feeds WHERE token_hash=%s AND revoked_at IS NULL", (token_hash(token),)).fetchone()
+    ratelimit.hit(db, f"feed:{rate_ip(request)}")
+    feed = db.execute("""SELECT f.* FROM calendar_feeds f JOIN users u ON u.id = f.user_id
+        WHERE f.token_hash=%s AND f.revoked_at IS NULL AND u.active""", (token_hash(token),)).fetchone()
     if not feed:
         raise ApiError(404, "Ссылка на календарь недействительна: её перевыпустили или отключили")
     if not feed["last_used_at"] or feed["last_used_at"] < clock.now() - timedelta(minutes=10):

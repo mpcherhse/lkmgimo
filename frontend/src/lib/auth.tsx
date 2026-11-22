@@ -45,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }), [])
 
   const logout = useCallback(async () => {
+    try { navigator.serviceWorker?.controller?.postMessage({ type: 'logout' }) } catch { /* нет service worker */ }
     try { await api.post('/api/logout') } catch { /* всё равно выходим */ }
     try { if ('caches' in window) for (const k of await caches.keys()) await caches.delete(k) } catch { /* нет кэша */ }
     setMe(null)

@@ -1,0 +1,13 @@
+# Конфигурация для хостинга Amvera: сборка по Dockerfile, приложение слушает 8800.
+# Переменные окружения и секреты задаются в интерфейсе Amvera (см. .env.example), в репозитории их нет.
+meta:
+  environment: docker
+  toolchain:
+    name: docker
+    version: latest
+build:
+  dockerfile: Dockerfile
+  skip: false
+run:
+  persistenceMount: /data
+  containerPort: 8800

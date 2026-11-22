@@ -55,7 +55,7 @@ export default function StaffSchedule() {
               {ls.map((l) => (
                 <div key={l.id}>
                   <LessonSlot l={l} showGroups addToCalendar={false}
-                    extra={l.status !== 'cancelled' && editing !== l.id ? <button className="btn btn-secondary btn-sm" onClick={() => setEditing(l.id)} aria-label={`Изменить: ${l.discipline}, ${dayMonth(l.date)} ${l.start}`}><Pencil aria-hidden="true" />Изменить</button> : undefined} />
+                    extra={l.status !== 'cancelled' && l.editable !== false && editing !== l.id ? <button className="btn btn-secondary btn-sm" onClick={() => setEditing(l.id)} aria-label={`Изменить: ${l.discipline}, ${dayMonth(l.date)} ${l.start}`}><Pencil aria-hidden="true" />Изменить</button> : undefined} />
                   {editing === l.id && <ChangeForm l={l} pairs={lessons.data!.pairs} onDone={() => { setEditing(null); lessons.reload(true) }} onCancel={() => setEditing(null)} />}
                 </div>
               ))}

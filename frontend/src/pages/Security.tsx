@@ -95,18 +95,18 @@ export default function Security() {
         <p className="sub">Где выполнен вход, история входов, пароль и второй фактор. Ключ сеанса меняется каждые 30 минут: если кто-то скопирует ваш вход, сеанс завершится и вы получите уведомление.</p>
       </div>
       {err && <Note tone="red">{err}</Note>}
-      {me?.demo && <Note>Это общий тестовый аккаунт для проверяющих: смена пароля и 2FA в нём отключены, чтобы никого не запереть. Всё остальное работает.</Note>}
+      {me?.demo && <Note>Это общий тестовый аккаунт для проверяющих: смена пароля и 2FA, завершение чужих сеансов и срок входа в нём отключены, а адреса других проверяющих скрыты — чтобы никого не запереть и не выкинуть. Всё остальное работает.</Note>}
 
       <div className="grid grid-2">
-        <Panel title="Сеансы" id="sess" flush action={s.others.length > 0 ? <button className="btn btn-ghost btn-sm more" onClick={endOthers}><LogOut aria-hidden="true" />Завершить остальные</button> : undefined}>
+        <Panel title="Сеансы" id="sess" flush action={s.others.length > 0 && !me?.demo ? <button className="btn btn-ghost btn-sm more" onClick={endOthers}><LogOut aria-hidden="true" />Завершить остальные</button> : undefined}>
           <ul className="list">
             {s.current && <SessionRow s={s.current} />}
-            {s.others.map((o) => <SessionRow key={o.id} s={o} onEnd={() => end(o.id)} />)}
+            {s.others.map((o) => <SessionRow key={o.id} s={o} onEnd={me?.demo ? undefined : () => end(o.id)} />)}
           </ul>
           <div className="panel-body" style={{ paddingTop: 4 }}>
             <div className="field" style={{ maxWidth: 320 }}>
               <label htmlFor="ttl">Выходить автоматически, если не заходил</label>
-              <select id="ttl" className="select" value={s.ttl_days} onChange={(e) => ttl(Number(e.target.value))}>
+              <select id="ttl" className="select" value={s.ttl_days} onChange={(e) => ttl(Number(e.target.value))} disabled={me?.demo}>
                 {s.ttl_options.map((d) => <option key={d} value={d}>{d} дней</option>)}
               </select>
             </div>
