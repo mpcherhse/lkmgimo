@@ -1,0 +1,12 @@
+{$LK_DOMAIN} {
+	encode zstd gzip
+	# CalDAV и подписка на календарь идут к приложению как есть (методы PROPFIND/REPORT пропускаются)
+	reverse_proxy app:8800 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+	header -Server
+	log {
+		output stdout
+		format console
+	}
+}

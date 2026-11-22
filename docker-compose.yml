@@ -1,0 +1,48 @@
+# Стенд: Caddy (HTTPS) → приложение (без состояния, можно поднять несколько копий) → PostgreSQL.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lk
+      POSTGRES_USER: lk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lk -d lk"]
+      interval: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      LK_DSN: host=db port=5432 dbname=lk user=lk password=${POSTGRES_PASSWORD}
+      LK_SECRET_KEY: ${LK_SECRET_KEY:?задайте LK_SECRET_KEY в .env}
+      LK_PUBLIC_URL: ${LK_PUBLIC_URL}
+      LK_COOKIE_SECURE: "1"
+      LK_DEMO_PASSWORDS: ${LK_DEMO_PASSWORDS:-}
+      LK_DEMO_TOTP_SECRET: ${LK_DEMO_TOTP_SECRET:-}
+      LK_DEMO_TOTP_HELPER: ${LK_DEMO_TOTP_HELPER:-0}
+    expose: ["8800"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      LK_DOMAIN: ${LK_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
