@@ -9,21 +9,23 @@
 - Что делает продукт — [docs/SPEC.md](docs/SPEC.md)
 - Как устроены вход и защита — [docs/SECURITY.md](docs/SECURITY.md)
 - Архитектура — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Как работали с ИИ — [docs/PROCESS_LOG.md](docs/PROCESS_LOG.md)
+- Как работали с ИИ — [docs/PROCESS_LOG.md](docs/PROCESS_LOG.md), итоговый документ — [docs/process.pdf](docs/process.pdf) (на сайте — `/process.pdf`)
 
 ## Запуск на сервере
+Чистый сервер Ubuntu/Debian, открыты порты 80 и 443:
 ```sh
-cp .env.example .env        # заполнить: домен, LK_SECRET_KEY, POSTGRES_PASSWORD, пароли демо-аккаунтов
-docker compose up -d --build
-docker compose exec app python -m app.cli seed
+git clone https://github.com/mpcherhse/lkmgimo /opt/lk && cd /opt/lk
+sudo sh deploy/bootstrap.sh lk.example.ru   # или без домена — адрес <ip>.sslip.io
 ```
-Caddy сам получит сертификат Let's Encrypt для `LK_DOMAIN`.
+Скрипт ставит Docker, создаёт `.env` со случайными секретами (только на сервере), запускает Caddy → приложение → PostgreSQL
+и при первом запуске заполняет базу вымышленными данными. Caddy сам получает сертификат Let's Encrypt.
+Обновление — `git pull && sudo sh deploy/bootstrap.sh` (данные сохраняются). Ручная настройка — по образцу [.env.example](.env.example).
 
 ## Разработка
 - Бэкенд: Python 3.12, FastAPI, PostgreSQL 17 (psycopg 3), Argon2id, pyotp, icalendar, reportlab.
-- Фронтенд: React + TypeScript + Vite, свои CSS-токены, PWA.
+- Фронтенд: React + TypeScript + Vite, свои CSS-токены, шрифт Onest, иконки Lucide, PWA.
 - Тесты: `cd backend && python -m pytest -q tests` (нужна база `lk_test`).
 - Правила для ИИ-агентов — [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md).
 
 ## Лицензии сторонних материалов
-Шрифт PT Sans (ParaType, SIL OFL 1.1) — `backend/app/resources/fonts/OFL.txt`. Список частых паролей — SecLists (MIT).
+Шрифты PT Sans (ParaType) — в справках, `backend/app/resources/fonts/OFL.txt`, и Onest — в интерфейсе; оба SIL OFL 1.1. Иконки Lucide (ISC). Список частых паролей — SecLists (MIT).
